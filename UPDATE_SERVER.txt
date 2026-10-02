@@ -1,68 +1,131 @@
-AI Build by Notascripter - relay 0.2.0 update
+AI Build by Notascripter - relay 0.3.0 update
 
 STATUS
-The public client and Ubuntu relay are separate updates. The expanded client
-requires relay 0.2.0 for ordinary chat, vehicle/test/copy plans, presence, and
-administrator functions. Changing the GitHub loader does not update the VM.
-The operator must install this matching server update before live acceptance.
+The public client and Ubuntu relay are separate updates. Relay 0.3.0 adds
+owner model selection, shared AI prompt review, and remote review of
+client-reported public server chat. Updating the GitHub loader does not
+update the VM. Install this matching relay before using these features.
+Basic GPT-5.5 conversation remains compatible with relay 0.2.0.
 
 PACKAGE CONTENTS
-Use the matching key-free package containing server.mjs, update-server.sh, and
-this instruction file. No OpenAI key, admin credential, populated .env file,
-or existing quota data is included. Preserve the VM's current private files.
+The matching key-free package contains server.mjs, update-server.sh, and
+this instruction file. It contains no OpenAI key, admin credential,
+populated .env file, or existing quota data. Preserve the VM's private files.
 
 UPDATE THE EXISTING VM
-Copy/extract the package onto the existing Ubuntu VM, open its directory, run:
+Copy/extract the package onto the existing Ubuntu VM, open its directory:
 
 sudo bash update-server.sh
 
 The script requires system-wide Node.js 22 or newer and targets /opt/forgeai,
 forgeai.service, and the forgeai Linux account. It honors PORT from .env
-(default 3000). It checks the new JavaScript, backs up the installed
-server and .env, installs the new server, restarts the existing service, and
-checks relayVersion 0.2.0 with administrator authorization enabled.
+(default 3000). It checks the new JavaScript, backs up the installed server
+and .env, installs the server, restarts the existing service, and verifies
+relayVersion 0.3.0 with administrator authorization enabled.
 
-The existing OpenAI key and request quota file are preserved. The actual
-FORGE_STATE_FILE path in .env is resolved relative to /opt/forgeai and
-backed up if present. Rollback keeps accepted quota/grant records.
-Do not overwrite the real .env with the blank example.
+The existing OpenAI key and quota state are preserved. FORGE_STATE_FILE is
+resolved relative to /opt/forgeai and backed up if present. Version-1 state
+migrates without resetting accepted requests, grants, or remaining quotas.
+Do not overwrite the real .env with a blank example.
 
 If installation or health verification fails, the updater attempts to restore
 the previous server, environment, and token file and restart that service.
+Rollback retains accepted quota/grant records. A prior relay does not expose
+the new review routes; any shared-review snapshots retained in state still
+require the operator's normal private-data handling and backup controls.
 
-OWNER ACCESS
-The updater reuses a valid configured owner token or generates one when
-needed. It writes the active value to /opt/forgeai/admin-token.txt with
-root-only permissions. The owner can read that file on the VM and enter
-the token in the in-game Admin page.
+OWNER ACCESS AND MODELS
+The updater reuses a valid configured owner token or generates one. It writes
+the active value to /opt/forgeai/admin-token.txt with root-only permissions.
+The owner reads that file on the VM and enters the token in the Admin page.
+Keep it private. It is not included in the public client or saved locally.
 
-Keep the token private. It is never included in the public client and is not
-saved in chats or local settings. A claimed Roblox username or user ID alone
-does not authorize admin requests. The owner panel sends explicit request
-grants and explicit joins only; the relay validates the private token.
+Model access requires a valid token and configured owner ID 8093680942.
+A claimed ID alone grants no authority. Models reads the real OpenAI account
+catalog and shows known compatible text models and eligible dated snapshots.
+Unknown, audio, image, search, and other unverified variants are excluded;
+this is not a picker for every OpenAI model.
+
+The account check found 21 compatible current aliases, including GPT-6 Astra,
+GPT-6.1 Sol, GPT-6 Sol/Luna, GPT-5.6 Sol/Terra/Luna, supported older GPT-5
+models, GPT-4.1 variants, and GPT-4o variants. Availability can change; the
+authenticated catalog is authoritative and caches successful lookups for
+five minutes. It does not make a paid inference request.
+
+GPT-6 Astra offers low, medium, high, xhigh, and max. Ultra is not supported
+by this API integration. Other models expose their own supported efforts;
+GPT-4.1/4o use none and omit reasoning and verbosity parameters upstream.
+Unavailable models and unsupported efforts fail explicitly without fallback.
+Ordinary clients continue using GPT-5.5 with low, medium, or high reasoning.
+All accepted AI requests use the existing quota rules, including owner calls.
+
+Owner inference has a 300-second upstream timeout and 315-second client
+timeout; ordinary calls retain 120/135 seconds. An executor or HTTPS proxy
+can impose a shorter limit. Uncertain inference requests are never replayed
+automatically and can already have consumed their accepted-request quota.
+
+SHARING AND REMOTE REVIEW
+New/default settings enable AI-prompt and public-server-chat sharing. The
+startup screen discloses both settings and provides Off controls before
+Open AI Build. Collection/upload begins only after Open. An existing saved
+Off choice remains Off. Settings can disable either feature later.
+
+AI review contains at most the recent 20 user/assistant messages, each up to
+1000 UTF-16 units, and a title up to 120 units. The relay stores one current
+snapshot per reported user, at most 200 snapshots and 4 MiB total. Automatic
+updates occur at most once per five minutes. Share for review can submit a
+snapshot explicitly, including while automatic sharing is Off, and follows
+the same update limit. Successful withdrawal removes the current snapshot.
+Snapshots remain until replacement or withdrawal; private backups can retain
+older state. Normal inference is never itself an automatic server chat log.
+
+Public chat collects new messages from the current server's public RBXGeneral
+channel only. It excludes private/whisper, team, system, and prior chat history.
+Up to 100 recent entries are sent, each with a username, reported user ID,
+timestamp, and up to 500 characters of text. The collector also caps text at
+500 UTF-8 bytes. The relay keeps one current buffer per reported player,
+including its reported place and job ID, up to 200 buffers and 4 MiB total.
+It accepts refreshes no more than once every five seconds. Buffers become
+unavailable after ten minutes without refresh, clear when sharing is disabled,
+and are lost on relay restart. Public-chat contents are not written to the
+durable quota/review file. Closing the client stops new collection; an existing
+relay buffer remains until withdrawal or expiry.
+
+The owner selects a service user and reads available shared AI prompts or
+server chat remotely, without joining that player's server. Reads require
+the owner token and owner ID. The service-user list contains timestamps and
+availability metadata, not chat contents. Public profile details are separate
+Roblox profile data. Reported identities, server locations, and messages are
+not verified Roblox sign-in or server-authoritative evidence.
+
+Viewing, granting requests, and requesting a join do not generate a recipient
+pop-up in AI Build. Sharing is visibly disclosed and controlled by the user;
+these controls do not provide hidden monitoring. Roblox can show its normal
+player presence or join behavior. Grants, joins, views, catalog reads, sharing,
+and withdrawal do not spend an AI request.
 
 VERIFY
 curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 
-Both should include ok:true and relayVersion:"0.2.0". After the supplied
-update, adminEnabled should be true. The response can retain the internal
-ForgeAI name. Health does not spend a prompt or verify in-game building.
+Use the configured port if it differs. Both responses should include ok:true,
+relayVersion:"0.3.0", and adminEnabled:true. The internal ForgeAI name and
+default model gpt-5.5 remain valid. Health does not spend a prompt or verify
+in-game building, remote sharing, or successful inference with every model.
 
-Then test a normal greeting, a small supported build, local save/load, and
-the owner presence/grant flow. Verify an actual drive and steering test
-before describing a newly generated vehicle as drivable.
+Check startup Off controls before Open, owner authentication/catalog loading,
+normal chat, shared-review withdrawal, and remote server-chat expiry. Live
+vehicle placement and bindings still need actual drive/steering observations
+before a generated vehicle can be described as drivable.
 
 DATA AND COMPATIBILITY
-The relay now retains client-reported public Roblox identifiers, recent
-place/server location, and last-seen time for the operator list. It does not
-write chat contents or raw IPs to quota state. Reported identities are not
-verified Roblox sign-in. Join availability remains subject to Roblox.
-
-Keep the working HTTPS proxy; do not expose the Node port directly.
-Keep the existing forgeai.service, quota data, .env, and executor forgeai
-folder. The product name changed; those compatibility names intentionally
-remain so saved user data does not need a manual migration.
+Keep the working HTTPS proxy; do not expose the Node port directly. Preserve
+forgeai.service, quota/review state, .env, and the executor forgeai folder.
+Presence reports public Roblox identifiers and server location about once per
+minute. The relay retains hashed quota identifiers, request/grant receipts,
+reported player metadata, and enabled/submitted AI review snapshots. It does
+not persist raw IPs or the rolling public-chat buffer. Known credentials are
+redacted, but this is not a guarantee against every possible secret.
 
 Public project: https://github.com/datadaniklan/AI-Build-Notascripter
 User loader: https://raw.githubusercontent.com/datadaniklan/AI-Build-Notascripter/main/loader.lua

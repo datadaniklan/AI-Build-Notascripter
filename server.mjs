@@ -7,8 +7,35 @@ import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const WINDOW = 48 * 60 * 60, LIMIT = 10;
-const RELAY_VERSION = '0.2.0';
-const MAX_PLAYERS=5000, MAX_GRANTS=10000;
+const RELAY_VERSION = '0.3.0';
+const OWNER_PLAYER_ID='8093680942', MODEL_CACHE_SECONDS=300, MODEL_FAILURE_SECONDS=30;
+// Explicit Responses + strict JSON-schema compatibility, checked against the
+// official model docs. Account membership alone never authorizes a new family.
+const MODEL_PROFILES=new Map();
+for(const [ids,efforts] of [
+  [['gpt-6-astra','gpt-6.1-sol'],['low','medium','high','xhigh','max']],
+  [['gpt-6-sol','gpt-6-luna','gpt-5.6','gpt-5.6-sol','gpt-5.6-terra','gpt-5.6-luna'],['none','low','medium','high','xhigh','max']],
+  [['gpt-5.5','gpt-5.4','gpt-5.4-mini','gpt-5.4-nano','gpt-5.2'],['none','low','medium','high','xhigh']],
+  [['gpt-5.1'],['none','low','medium','high']],
+  [['gpt-5','gpt-5-mini','gpt-5-nano'],['minimal','low','medium','high']],
+  [['gpt-4.1','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4o-mini'],['none']],
+])for(const id of ids)MODEL_PROFILES.set(id,{efforts,reasoning:!id.startsWith('gpt-4'),verbosity:!id.startsWith('gpt-4')});
+function modelProfile(id) {
+  if(typeof id!=='string' || id.length>100)return null;
+  let base=id;
+  const snapshot=id.match(/^(.*)-(\d{4}-\d{2}-\d{2})$/);
+  if(snapshot){
+    base=snapshot[1];
+    const timestamp=Date.parse(snapshot[2]+'T00:00:00Z');
+    if(!Number.isFinite(timestamp)||new Date(timestamp).toISOString().slice(0,10)!==snapshot[2])return null;
+    // The May 2024 GPT-4o snapshot predates strict Structured Outputs.
+    if(base==='gpt-4o'&&snapshot[2]<'2024-08-06')return null;
+  }
+  const profile=MODEL_PROFILES.get(base);
+  return profile?{...profile,id,label:id.replace(/^gpt-/,'GPT-').replace(/-(astra|sol|terra|luna|mini|nano)/g,(_,word)=>' '+word[0].toUpperCase()+word.slice(1))}:null;
+}
+const MAX_PLAYERS=5000, MAX_GRANTS=10000, MAX_REVIEWS=200, MAX_REVIEW_BYTES=4*1024*1024, REVIEW_INTERVAL=300;
+const MAX_SERVER_CHATS=200, MAX_SERVER_CHAT_BYTES=4*1024*1024, SERVER_CHAT_TTL=600, SERVER_CHAT_INTERVAL=5;
 const INSTRUCTIONS = `You are AI Build by Notascripter, a helpful general-purpose assistant with a Build A Boat For Treasure building tool.
 Answer ordinary questions naturally without forcing them into a building project. Only propose a game action when requested; conversation returns an empty plan_json.
 When building, work only on the requesting player's own plot with available inventory and normal build tools.
@@ -81,6 +108,19 @@ function validAdminState(value) {
   });
 }
 
+function validReviewMessages(messages) {
+  return Array.isArray(messages)&&messages.length>=1&&messages.length<=20&&messages.every(m=>
+    record(m)&&Object.keys(m).every(k=>['role','content'].includes(k))&&['user','assistant'].includes(m.role)
+    &&typeof m.content==='string'&&m.content.trim().length>0&&m.content.length<=1000);
+}
+function validReviews(reviews) {
+  return record(reviews)&&Object.keys(reviews).length<=MAX_REVIEWS&&Buffer.byteLength(JSON.stringify(reviews))<=MAX_REVIEW_BYTES
+    &&Object.entries(reviews).every(([id,r])=>/^[1-9]\d{0,15}$/.test(id)&&record(r)&&r.playerId===id
+      &&Object.keys(r).every(k=>['playerId','title','messages','updatedAt','requestId','payloadHash'].includes(k))
+      &&typeof r.title==='string'&&r.title.length<=120&&validReviewMessages(r.messages)&&natural(r.updatedAt)
+      &&typeof r.requestId==='string'&&/^[A-Za-z0-9_-]{16,80}$/.test(r.requestId)&&/^[a-f0-9]{64}$/.test(r.payloadHash));
+}
+
 export function createForgeServer(options={}) {
   const key=options.apiKey ?? process.env.OPENAI_API_KEY;
   if (typeof key!=='string' || !key.startsWith('sk-')) throw new Error('Set OPENAI_API_KEY on the server before starting ForgeAI.');
@@ -98,8 +138,9 @@ export function createForgeServer(options={}) {
     if(!validState(state)) throw new Error('Quota state is invalid; recover the file instead of resetting limits.');
   }
   // Old version-1 quota files migrate without resetting usage or request IDs.
-  for(const [field,empty] of [['players',{}],['credits',{}],['adminAudit',[]]]) if(state[field]===undefined)state[field]=empty;
+  for(const [field,empty] of [['players',{}],['credits',{}],['adminAudit',[]],['reviews',{}]]) if(state[field]===undefined)state[field]=empty;
   if(!validAdminState(state)) throw new Error('Admin state is invalid; recover the file instead of resetting it.');
+  if(!validReviews(state.reviews)) throw new Error('Shared review state is invalid; recover the file instead of resetting it.');
   const hash=v=>crypto.createHmac('sha256',state.salt).update(v).digest('hex');
   const persist=()=>{fs.mkdirSync(path.dirname(path.resolve(stateFile)),{recursive:true});fs.writeFileSync(stateFile+'.tmp',JSON.stringify(state),{mode:0o600});fs.renameSync(stateFile+'.tmp',stateFile);};
   const transact=update=>{
@@ -109,6 +150,17 @@ export function createForgeServer(options={}) {
   persist();
   let active=0;
   const pendingPlayers=new Set(), cache=new Map();
+  // Rolling public-chat snapshots are deliberately ephemeral, never written to
+  // the durable quota/review file. All identities and contents are reported by clients.
+  const serverChats=new Map(),serverChatCooldowns=new Map();let serverChatBytes=0;
+  function removeServerChat(player) {
+    const previous=serverChats.get(player);
+    if(previous){serverChatBytes-=previous.bytes;serverChats.delete(player);}
+  }
+  function pruneServerChats(t) {
+    for(const [player,row] of serverChats)if(t>=row.chat.updatedAt+SERVER_CHAT_TTL)removeServerChat(player);
+    for(const [player,until] of serverChatCooldowns)if(t>=until)serverChatCooldowns.delete(player);
+  }
   function bucket(id,t) {let b=state.buckets[id];if(!b || t>=b.resetAt) b={used:0,resetAt:t+WINDOW};return b;}
   function quota(player,ip,t) {
     const a=bucket('p:'+hash(player),t),b=bucket('i:'+hash(ip),t);
@@ -121,6 +173,47 @@ export function createForgeServer(options={}) {
     const expectedHash=crypto.createHash('sha256').update(adminToken).digest();
     const suppliedHash=crypto.createHash('sha256').update(supplied).digest();
     if(!adminToken || !crypto.timingSafeEqual(expectedHash,suppliedHash)) throw problem(403,'Owner authentication is required.');
+  }
+  function authenticateOwner(req,player) {
+    authenticateAdmin(req);
+    if(player!==OWNER_PLAYER_ID)throw problem(403,'Owner model access is restricted to the configured owner player ID.');
+  }
+  let modelCache=null,modelFlight=null,modelRetryAt=0;
+  async function ownerModels() {
+    const t=now();
+    if(modelCache&&t<modelCache.expiresAt)return modelCache;
+    if(modelFlight)return modelFlight;
+    if(t<modelRetryAt)throw problem(503,'The owner model catalog is unavailable. Try refreshing shortly.');
+    modelFlight=(async()=>{
+      try {
+        const response=await fetcher('https://api.openai.com/v1/models',{method:'GET',
+          headers:{Authorization:'Bearer '+key},signal:AbortSignal.timeout(10000)});
+        if(!response.ok)throw new Error('catalog');
+        const reader=response.body?.getReader();
+        if(!reader)throw new Error('catalog');
+        let size=0;const chunks=[];
+        try {
+          while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;
+            if(size>1024*1024)throw new Error('catalog');chunks.push(value);}
+        } catch(error){try{await reader.cancel();}catch{}throw error;}
+        finally{reader.releaseLock();}
+        const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if(!record(body)||!Array.isArray(body.data)||body.data.length>5000)throw new Error('catalog');
+        const ids=new Set(body.data.map(row=>record(row)?row.id:null));
+        const models=[...ids].map(modelProfile).filter(Boolean)
+          .sort((a,b)=>Number(/-\d{4}-\d{2}-\d{2}$/.test(a.id))-Number(/-\d{4}-\d{2}-\d{2}$/.test(b.id))||a.id.localeCompare(b.id))
+          .map(({id,label,efforts})=>({id,label,efforts}));
+        if(models.length>256)throw new Error('catalog');
+        const fetchedAt=now();
+        modelCache={models,fetchedAt,expiresAt:fetchedAt+MODEL_CACHE_SECONDS,relayVersion:RELAY_VERSION,
+          compatibleOnly:true,notice:'Only account-accessible models with verified text and structured-output compatibility are shown. Other model families are excluded.'};
+        modelRetryAt=0;return modelCache;
+      } catch {
+        modelRetryAt=now()+MODEL_FAILURE_SECONDS;
+        throw problem(503,'The owner model catalog is unavailable. Try refreshing shortly.');
+      }
+    })();
+    try{return await modelFlight;}finally{modelFlight=null;}
   }
   function rememberPlayer(player,data,ip,t) {
     // These are client-reported public Roblox identifiers, not authenticated identity.
@@ -166,28 +259,100 @@ export function createForgeServer(options={}) {
     for await(const chunk of req){n+=chunk.length;if(n>256*1024)throw problem(413,'Request is too large.');chunks.push(chunk);}
     try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw problem(400,'Invalid JSON.');}
   }
-  return http.createServer(async(req,res)=>{
+  const server=http.createServer(async(req,res)=>{
     try {
       const url=new URL(req.url,'http://local');
       if(req.method==='GET' && url.pathname==='/health')return respond(res,200,{ok:true,name:'ForgeAI',model:'gpt-5.5',premium:false,limit:LIMIT,windowSeconds:WINDOW,relayVersion:RELAY_VERSION,adminEnabled:!!adminToken});
       if(req.headers.origin)throw problem(403,'Browser-origin API requests are not supported.');
-      if(req.method!=='POST' || !['/v1/chat','/v1/quota','/v1/presence','/v1/admin/users','/v1/admin/grant'].includes(url.pathname))throw problem(404,'Not found.');
+      if(req.method!=='POST' || !['/v1/chat','/v1/quota','/v1/presence','/v1/admin/users','/v1/admin/grant','/v1/admin/models','/v1/review/share','/v1/review/clear','/v1/admin/review','/v1/server-chat/share','/v1/admin/server-chat'].includes(url.pathname))throw problem(404,'Not found.');
       if(url.pathname.startsWith('/v1/admin/'))authenticateAdmin(req);
       if(!String(req.headers['content-type']||'').startsWith('application/json'))throw problem(415,'Use application/json.');
       const data=await body(req);
       if(!record(data))throw problem(400,'Use a JSON request object.');
       const t=now(),ip=clientIP(req),player=String(data.playerId||'');
       if(!natural(t))throw new Error('Invalid server clock.');
+      pruneServerChats(t);
       if(url.pathname==='/v1/admin/users') {
         const players=Object.values(state.players).filter(record).map(p=>{
           const personal=bucket('p:'+hash(p.playerId),t),network=bucket('i:'+p.networkHash,t);
           return {playerId:p.playerId,username:p.username,placeId:p.placeId,jobId:p.jobId,lastSeen:p.lastSeen,firstSeen:p.firstSeen,
+            reviewSharedAt:state.reviews[p.playerId]?.updatedAt||null,
+            serverChatSharedAt:serverChats.get(p.playerId)?.chat.updatedAt||null,
             requests:p.requests,remaining:Math.max(0,Math.min(LIMIT-personal.used,LIMIT-network.used))+(state.credits[p.playerId]||0),
             bonusRemaining:state.credits[p.playerId]||0,online:t>=p.lastSeen&&t-p.lastSeen<=150,identityVerified:false};
         }).sort((a,b)=>b.lastSeen-a.lastSeen);
         return respond(res,200,{players:players.slice(0,1000),total:players.length,identityVerified:false,serverTime:t});
       }
       if(!/^[1-9]\d{0,15}$/.test(player))throw problem(400,'Invalid player identifier.');
+      if(url.pathname==='/v1/admin/models') {
+        authenticateOwner(req,player);return respond(res,200,await ownerModels());
+      }
+      if(url.pathname==='/v1/server-chat/share') {
+        if(typeof data.enabled!=='boolean')throw problem(400,'Explicit server-chat sharing state is required.');
+        if(!data.enabled){removeServerChat(player);return respond(res,200,{shared:false,cleared:true});}
+        if(typeof data.username!=='string'||!/^[A-Za-z0-9_]{3,20}$/.test(data.username)
+          ||!natural(data.placeId)||data.placeId<1||typeof data.jobId!=='string'||!/^[A-Za-z0-9-]{1,80}$/.test(data.jobId))
+          throw problem(400,'Valid reported player and server identifiers are required.');
+        if(!Array.isArray(data.messages)||data.messages.length>100||!data.messages.every(m=>record(m)
+          &&Object.keys(m).every(k=>['username','text','userId','at'].includes(k))
+          &&typeof m.username==='string'&&m.username.trim().length>0&&m.username.length<=40
+          &&typeof m.text==='string'&&m.text.trim().length>0&&m.text.length<=500&&natural(m.at)
+          &&(typeof m.userId==='string'||Number.isSafeInteger(m.userId))&&/^[1-9]\d{0,15}$/.test(String(m.userId))))
+          throw problem(400,'Share up to 100 public-chat messages with valid usernames, user IDs, timestamps, and text up to 500 characters.');
+        if(t<(serverChatCooldowns.get(player)||0))throw problem(429,'Server-chat sharing can refresh once every 5 seconds. No AI request was charged.');
+        const previous=serverChats.get(player);
+        if(!previous&&serverChats.size>=MAX_SERVER_CHATS)throw problem(503,'The public-chat buffer registry is full. Nothing was shared.');
+        if(!serverChatCooldowns.has(player)&&serverChatCooldowns.size>=MAX_PLAYERS)throw problem(503,'Public-chat sharing is busy. Try shortly.');
+        const chat={playerId:player,username:cleanText(redact(data.username),40),placeId:data.placeId,jobId:data.jobId,
+          messages:data.messages.map(m=>({username:cleanText(redact(m.username),40),text:cleanText(redact(m.text),500),userId:String(m.userId),at:m.at})),
+          updatedAt:t,identityVerified:false,source:'client_reported_public_server_chat'};
+        const bytes=Buffer.byteLength(JSON.stringify(chat));
+        if(serverChatBytes-(previous?.bytes||0)+bytes>MAX_SERVER_CHAT_BYTES)throw problem(503,'The public-chat buffer storage limit was reached. Nothing was shared.');
+        if(!state.players[player])transact(()=>rememberPlayer(player,data,ip,t));
+        removeServerChat(player);serverChats.set(player,{chat,bytes});serverChatBytes+=bytes;
+        serverChatCooldowns.set(player,t+SERVER_CHAT_INTERVAL);
+        return respond(res,200,{shared:true,updatedAt:t,expiresAt:t+SERVER_CHAT_TTL});
+      }
+      if(url.pathname==='/v1/admin/server-chat') {
+        authenticateOwner(req,player);
+        const target=data.targetPlayerId;
+        if(typeof target!=='string'||!/^[1-9]\d{0,15}$/.test(target))throw problem(400,'Choose a valid player ID.');
+        const row=serverChats.get(target);
+        if(!row)throw problem(404,'Server chat is unavailable: sharing is off, no snapshot was received, or the buffer expired.');
+        return respond(res,200,{chat:row.chat});
+      }
+      if(url.pathname==='/v1/review/clear') {
+        if(state.reviews[player])transact(()=>{delete state.reviews[player];});
+        return respond(res,200,{cleared:true});
+      }
+      if(url.pathname==='/v1/admin/review') {
+        authenticateOwner(req,player);
+        const target=data.targetPlayerId;
+        if(typeof target!=='string'||!/^[1-9]\d{0,15}$/.test(target))throw problem(400,'Choose a valid player ID.');
+        const r=state.reviews[target];
+        if(!r)throw problem(404,'This player has not explicitly shared a chat for review.');
+        return respond(res,200,{review:{playerId:r.playerId,title:r.title,messages:r.messages,updatedAt:r.updatedAt,
+          identityVerified:false,source:'explicit_user_share'}});
+      }
+      if(url.pathname==='/v1/review/share') {
+        if(typeof data.title!=='string'||data.title.length>120||!validReviewMessages(data.messages))
+          throw problem(400,'Share a title up to 120 characters and 1 to 20 user or assistant messages up to 1000 characters each.');
+        const requestId=data.requestId;
+        if(typeof requestId!=='string'||!/^[A-Za-z0-9_-]{16,80}$/.test(requestId))throw problem(400,'A unique share request identifier is required.');
+        const payloadHash=hash(JSON.stringify({title:data.title,messages:data.messages})),previous=state.reviews[player];
+        if(previous?.requestId===requestId){
+          if(previous.payloadHash!==payloadHash)throw problem(409,'Share request identifier already used with different content.');
+          return respond(res,200,{shared:true,alreadyShared:true,updatedAt:previous.updatedAt});
+        }
+        if(previous&&t<previous.updatedAt+REVIEW_INTERVAL)throw problem(429,'A shared chat can be updated once every 5 minutes. No AI request was charged.');
+        if(!previous&&Object.keys(state.reviews).length>=MAX_REVIEWS)throw problem(503,'The shared-review registry is full; operator maintenance is required. Nothing was shared.');
+        const review={playerId:player,title:cleanText(redact(data.title),120),
+          messages:data.messages.map(m=>({role:m.role,content:cleanText(redact(m.content),1000)})),updatedAt:t,requestId,payloadHash};
+        if(Buffer.byteLength(JSON.stringify({...state.reviews,[player]:review}))>MAX_REVIEW_BYTES)
+          throw problem(503,'The shared-review storage limit was reached. Nothing was shared.');
+        transact(()=>{rememberPlayer(player,data,ip,t);state.reviews[player]=review;});
+        return respond(res,200,{shared:true,updatedAt:t});
+      }
       if(url.pathname==='/v1/admin/grant') {
         if(!state.players[player])throw problem(404,'That player has not registered with this service.');
         if(!natural(data.amount)||data.amount<1||data.amount>100)throw problem(400,'Grant between 1 and 100 prompts.');
@@ -211,7 +376,15 @@ export function createForgeServer(options={}) {
         transact(()=>rememberPlayer(player,data,ip,t));return respond(res,200,{ok:true,relayVersion:RELAY_VERSION,adminEnabled:!!adminToken});
       }
       if(url.pathname==='/v1/quota')return respond(res,200,{quota:quota(player,ip,t)});
-      if(data.model && data.model!=='gpt-5.5')throw problem(403,'Only GPT-5.5 is available. Premium is unavailable.');
+      if(data.settings!==undefined&&!record(data.settings))throw problem(400,'Invalid request settings.');
+      const model=data.model===undefined?'gpt-5.5':data.model;
+      const effort=data.settings?.reasoning===undefined?'medium':data.settings.reasoning;
+      if(typeof model!=='string'||typeof effort!=='string')throw problem(400,'Invalid model or reasoning effort.');
+      const ownerRequest=model!=='gpt-5.5'||!['low','medium','high'].includes(effort)||req.headers.authorization!==undefined;
+      if(ownerRequest)authenticateOwner(req,player);
+      const profile=modelProfile(model);
+      if(!profile)throw problem(400,'This model is not supported by the owner text and structured-output catalog.');
+      if(!profile.efforts.includes(effort))throw problem(400,'The selected model does not support this reasoning effort. Choose an effort from its catalog.');
       if(!Array.isArray(data.messages) || data.messages.length<1 || data.messages.length>40)throw problem(400,'Invalid chat history.');
       const messages=data.messages.map(m=>{
         if(!m || !['user','assistant'].includes(m.role) || typeof m.content!=='string' || m.content.length>12000)throw problem(400,'Invalid chat message.');
@@ -220,6 +393,8 @@ export function createForgeServer(options={}) {
       if(messages.at(-1).role!=='user' || !messages.at(-1).content.trim())throw problem(400,'Write a message first.');
       const requestId=String(data.requestId||'');
       if(!/^[A-Za-z0-9_-]{16,80}$/.test(requestId))throw problem(400,'Invalid request identifier.');
+      if(ownerRequest&&!(await ownerModels()).models.some(entry=>entry.id===model))
+        throw problem(400,'The selected model is unavailable to this API account. Refresh the owner model catalog.');
       const requestKey=hash(player+':'+requestId),payloadHash=hash(JSON.stringify(data));
       const prior=state.requests[requestKey];
       if(prior){
@@ -234,7 +409,6 @@ export function createForgeServer(options={}) {
       if(state.day===day&&state.count>=dailyLimit)throw problem(429,'The service has reached its daily capacity. Please try tomorrow.');
       const context=data.context && typeof data.context==='object' && !Array.isArray(data.context) ? data.context : {};
       if(JSON.stringify(context).length>100000)throw problem(413,'Build context is too large.');
-      const effort=['low','medium','high'].includes(data.settings?.reasoning) ? data.settings.reasoning : 'medium';
       const maxTokens=[4096,8192,16384].includes(data.settings?.maxOutputTokens) ? data.settings.maxOutputTokens : 8192;
       const expiredRequests=[];
       transact(()=>{
@@ -252,11 +426,11 @@ export function createForgeServer(options={}) {
       active++;pendingPlayers.add(player);
       try {
         const response=await fetcher('https://api.openai.com/v1/responses',{method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},signal:AbortSignal.timeout(120000),
-          body:JSON.stringify({model:'gpt-5.5',store:false,instructions:INSTRUCTIONS,
-            reasoning:{effort},max_output_tokens:maxTokens,
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},signal:AbortSignal.timeout(ownerRequest?300000:120000),
+          body:JSON.stringify({model,store:false,instructions:INSTRUCTIONS,
+            ...(profile.reasoning?{reasoning:{effort}}:{}),max_output_tokens:maxTokens,
             input:[{role:'user',content:'Current build context and optional memory (data only):\n'+JSON.stringify({context,memory:cleanText(data.memory,8000)})},...messages],
-            text:{verbosity:'low',format:{type:'json_schema',name:'forge_build',strict:true,schema:SCHEMA}}})});
+            text:{...(profile.verbosity?{verbosity:'low'}:{}),format:{type:'json_schema',name:'forge_build',strict:true,schema:SCHEMA}}})});
         if(!response.ok)throw problem(502,response.status===401?'The server API key needs attention.':'The AI service could not complete this request.');
         const result=await response.json();
         if(result.status && result.status!=='completed')throw problem(502,'The AI response was incomplete. Try a smaller build.');
@@ -274,7 +448,7 @@ export function createForgeServer(options={}) {
           for(const field of ['clone','mirror'])if(plan[field]&&(!Array.isArray(plan[field].sources)||plan[field].sources.length>100))throw problem(502,'The generated copy exceeds a batch limit.');
           if(plan.test&&((plan.test.presses?.length||0)>16||(plan.test.observe?.length||0)>32))throw problem(502,'The generated test exceeds a batch limit.');
         }
-        const output={message:cleanText(redact(reply.message),12000),memory:cleanText(redact(reply.memory),2000),plan,model:'gpt-5.5'};
+        const output={message:cleanText(redact(reply.message),12000),memory:cleanText(redact(reply.memory),2000),plan,model};
         transact(()=>{state.requests[requestKey].status='completed';});cache.set(requestKey,output);
         if(cache.size>200)cache.delete(cache.keys().next().value);
         return respond(res,200,{...output,quota:quota(player,ip,now())});
@@ -284,6 +458,9 @@ export function createForgeServer(options={}) {
       } finally {active--;pendingPlayers.delete(player);}
     } catch(error){respond(res,error?.[SAFE_ERROR]?error.status:500,{error:error?.[SAFE_ERROR]?error.message:'Server error. Please try later.'});}
   });
+  const cleanup=setInterval(()=>pruneServerChats(now()),30000);cleanup.unref();
+  server.on('close',()=>{clearInterval(cleanup);serverChats.clear();serverChatCooldowns.clear();serverChatBytes=0;});
+  return server;
 }
 
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
