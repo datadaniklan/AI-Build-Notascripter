@@ -7,7 +7,7 @@ import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const WINDOW = 48 * 60 * 60, LIMIT = 10;
-const RELAY_VERSION = '0.3.0';
+const RELAY_VERSION = '0.3.1';
 const OWNER_PLAYER_ID='8093680942', MODEL_CACHE_SECONDS=300, MODEL_FAILURE_SECONDS=30;
 // Explicit Responses + strict JSON-schema compatibility, checked against the
 // official model docs. Account membership alone never authorizes a new family.
@@ -162,7 +162,9 @@ export function createForgeServer(options={}) {
     for(const [player,until] of serverChatCooldowns)if(t>=until)serverChatCooldowns.delete(player);
   }
   function bucket(id,t) {let b=state.buckets[id];if(!b || t>=b.resetAt) b={used:0,resetAt:t+WINDOW};return b;}
-  function quota(player,ip,t) {
+  function quota(player,ip,t,authenticatedOwner=false) {
+    if(authenticatedOwner)return {unlimited:true,remaining:null,bonusRemaining:0,used:0,limit:null,
+      resetAt:null,windowSeconds:null,scope:'authenticated owner',relayVersion:RELAY_VERSION,adminEnabled:true};
     const a=bucket('p:'+hash(player),t),b=bucket('i:'+hash(ip),t);
     const bonus=state.credits[player] || 0;
     return {remaining:Math.max(0,Math.min(LIMIT-a.used,LIMIT-b.used))+bonus,bonusRemaining:bonus,used:Math.max(a.used,b.used),limit:LIMIT,
@@ -375,7 +377,11 @@ export function createForgeServer(options={}) {
       if(url.pathname==='/v1/presence') {
         transact(()=>rememberPlayer(player,data,ip,t));return respond(res,200,{ok:true,relayVersion:RELAY_VERSION,adminEnabled:!!adminToken});
       }
-      if(url.pathname==='/v1/quota')return respond(res,200,{quota:quota(player,ip,t)});
+      if(url.pathname==='/v1/quota'){
+        const ownerRequest=req.headers.authorization!==undefined;
+        if(ownerRequest)authenticateOwner(req,player);
+        return respond(res,200,{quota:quota(player,ip,t,ownerRequest)});
+      }
       if(data.settings!==undefined&&!record(data.settings))throw problem(400,'Invalid request settings.');
       const model=data.model===undefined?'gpt-5.5':data.model;
       const effort=data.settings?.reasoning===undefined?'medium':data.settings.reasoning;
@@ -399,14 +405,14 @@ export function createForgeServer(options={}) {
       const prior=state.requests[requestKey];
       if(prior){
         if(prior.payloadHash!==payloadHash)throw problem(409,'Request identifier was already used with different content.');
-        if(cache.has(requestKey))return respond(res,200,{...cache.get(requestKey),quota:quota(player,ip,t)});
+        if(cache.has(requestKey))return respond(res,200,{...cache.get(requestKey),quota:quota(player,ip,t,ownerRequest)});
         throw problem(409,'This request was already accepted. Its result is unavailable; it will not be charged or submitted again automatically.');
       }
-      const q=quota(player,ip,t);
-      if(q.remaining===0)return respond(res,429,{error:'Your 10 free requests have been used. Wait for the reset.',quota:q});
+      const q=quota(player,ip,t,ownerRequest);
+      if(!ownerRequest&&q.remaining===0)return respond(res,429,{error:'Your 10 free requests have been used. Wait for the reset.',quota:q});
       if(active>=2 || pendingPlayers.has(player))throw problem(429,'The service is busy. Wait for the current request to finish.');
       const day=Math.floor(t/86400);
-      if(state.day===day&&state.count>=dailyLimit)throw problem(429,'The service has reached its daily capacity. Please try tomorrow.');
+      if(!ownerRequest&&state.day===day&&state.count>=dailyLimit)throw problem(429,'The service has reached its daily capacity. Please try tomorrow.');
       const context=data.context && typeof data.context==='object' && !Array.isArray(data.context) ? data.context : {};
       if(JSON.stringify(context).length>100000)throw problem(413,'Build context is too large.');
       const maxTokens=[4096,8192,16384].includes(data.settings?.maxOutputTokens) ? data.settings.maxOutputTokens : 8192;
@@ -415,10 +421,15 @@ export function createForgeServer(options={}) {
         // Registry capacity and persistence must succeed before quota spending
         // becomes visible or an upstream request is dispatched.
         rememberPlayer(player,data,ip,t).requests++;
-        if(q.remaining===q.bonusRemaining){state.credits[player]--;if(state.credits[player]===0)delete state.credits[player];}
-        else for(const id of ['p:'+hash(player),'i:'+hash(ip)]){const b=bucket(id,t);b.used++;state.buckets[id]=b;}
-        if(state.day!==day){state.day=day;state.count=0;}
-        state.requests[requestKey]={at:t,status:'accepted',payloadHash};state.count++;
+        // Authentication above is required even for the default model. Owner
+        // requests retain durable receipts but do not spend any public allowance.
+        if(!ownerRequest){
+          if(q.remaining===q.bonusRemaining){state.credits[player]--;if(state.credits[player]===0)delete state.credits[player];}
+          else for(const id of ['p:'+hash(player),'i:'+hash(ip)]){const b=bucket(id,t);b.used++;state.buckets[id]=b;}
+          if(state.day!==day){state.day=day;state.count=0;}
+          state.count++;
+        }
+        state.requests[requestKey]={at:t,status:'accepted',payloadHash};
         for(const [id,b] of Object.entries(state.buckets))if(t>=b.resetAt+WINDOW)delete state.buckets[id];
         for(const [id,r] of Object.entries(state.requests))if(t-r.at>WINDOW){delete state.requests[id];expiredRequests.push(id);}
       });
@@ -451,10 +462,10 @@ export function createForgeServer(options={}) {
         const output={message:cleanText(redact(reply.message),12000),memory:cleanText(redact(reply.memory),2000),plan,model};
         transact(()=>{state.requests[requestKey].status='completed';});cache.set(requestKey,output);
         if(cache.size>200)cache.delete(cache.keys().next().value);
-        return respond(res,200,{...output,quota:quota(player,ip,now())});
+        return respond(res,200,{...output,quota:quota(player,ip,now(),ownerRequest)});
       } catch(error) {
         transact(()=>{state.requests[requestKey].status='failed';});
-        return respond(res,error?.[SAFE_ERROR]?error.status:502,{error:error?.[SAFE_ERROR]?error.message:'The AI request timed out or failed. It is not automatically retried.',quota:quota(player,ip,now())});
+        return respond(res,error?.[SAFE_ERROR]?error.status:502,{error:error?.[SAFE_ERROR]?error.message:'The AI request timed out or failed. It is not automatically retried.',quota:quota(player,ip,now(),ownerRequest)});
       } finally {active--;pendingPlayers.delete(player);}
     } catch(error){respond(res,error?.[SAFE_ERROR]?error.status:500,{error:error?.[SAFE_ERROR]?error.message:'Server error. Please try later.'});}
   });

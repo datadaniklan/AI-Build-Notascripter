@@ -1,9 +1,10 @@
-AI Build by Notascripter - relay 0.3.0 update
+AI Build by Notascripter - relay 0.3.1 update
 
 STATUS
-The public client and Ubuntu relay are separate updates. Relay 0.3.0 adds
-owner model selection, shared AI prompt review, and remote review of
-client-reported public server chat. Updating the GitHub loader does not
+The public client and Ubuntu relay are separate updates. Relay 0.3.1 adds
+unlimited authenticated owner prompts to the model selection and shared
+chat review introduced in relay 0.3.0. Upgrade even an existing 0.3.0 relay
+to receive this allowance. Updating the GitHub loader does not
 update the VM. Install this matching relay before using these features.
 Basic GPT-5.5 conversation remains compatible with relay 0.2.0.
 
@@ -21,7 +22,7 @@ The script requires system-wide Node.js 22 or newer and targets /opt/forgeai,
 forgeai.service, and the forgeai Linux account. It honors PORT from .env
 (default 3000). It checks the new JavaScript, backs up the installed server
 and .env, installs the server, restarts the existing service, and verifies
-relayVersion 0.3.0 with administrator authorization enabled.
+relayVersion 0.3.1 with administrator authorization enabled.
 
 The existing OpenAI key and quota state are preserved. FORGE_STATE_FILE is
 resolved relative to /opt/forgeai and backed up if present. Version-1 state
@@ -37,8 +38,11 @@ require the operator's normal private-data handling and backup controls.
 OWNER ACCESS AND MODELS
 The updater reuses a valid configured owner token or generates one. It writes
 the active value to /opt/forgeai/admin-token.txt with root-only permissions.
-The owner reads that file on the VM and enters the token in the Admin page.
-Keep it private. It is not included in the public client or saved locally.
+The owner reads that file on the VM and enters the token once in the existing
+Admin page after opening the workspace. The normal startup flow is retained.
+Keep it private. It is not included in public bundles or local chat/settings.
+Client 0.3.1 remembers it after authentication in forgeai/admin_8093680942.key,
+a plain local credential file. Forget removes that saved credential.
 
 Model access requires a valid token and configured owner ID 8093680942.
 A claimed ID alone grants no authority. Models reads the real OpenAI account
@@ -57,12 +61,17 @@ by this API integration. Other models expose their own supported efforts;
 GPT-4.1/4o use none and omit reasoning and verbosity parameters upstream.
 Unavailable models and unsupported efforts fail explicitly without fallback.
 Ordinary clients continue using GPT-5.5 with low, medium, or high reasoning.
-All accepted AI requests use the existing quota rules, including owner calls.
+Only a valid token plus owner ID 8093680942 enables unlimited owner prompts.
+Authenticated owner calls do not consume the free player/network allowance,
+bonus credits, or public daily request ceiling. A claimed owner ID alone
+receives the ordinary allowance. Durable request receipts, model validation,
+output/time limits, two global concurrent requests, and one in flight per
+player remain. OpenAI provider usage still costs the operator.
 
 Owner inference has a 300-second upstream timeout and 315-second client
 timeout; ordinary calls retain 120/135 seconds. An executor or HTTPS proxy
 can impose a shorter limit. Uncertain inference requests are never replayed
-automatically and can already have consumed their accepted-request quota.
+automatically. Ordinary accepted requests can already have consumed quota.
 
 SHARING AND REMOTE REVIEW
 New/default settings enable AI-prompt and public-server-chat sharing. The
@@ -109,11 +118,12 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 
 Use the configured port if it differs. Both responses should include ok:true,
-relayVersion:"0.3.0", and adminEnabled:true. The internal ForgeAI name and
+relayVersion:"0.3.1", and adminEnabled:true. The internal ForgeAI name and
 default model gpt-5.5 remain valid. Health does not spend a prompt or verify
 in-game building, remote sharing, or successful inference with every model.
 
 Check startup Off controls before Open, owner authentication/catalog loading,
+authenticated unlimited status and remembered-credential reconnect/Forget,
 normal chat, shared-review withdrawal, and remote server-chat expiry. Live
 vehicle placement and bindings still need actual drive/steering observations
 before a generated vehicle can be described as drivable.

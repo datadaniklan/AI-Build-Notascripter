@@ -43,7 +43,7 @@ install -m 644 -o root -g forgeai "$SOURCE_DIR/server.mjs" "$DEST_DIR/server.mjs
 systemctl restart forgeai.service
 sleep 2
 systemctl is-active --quiet forgeai.service
-env -u PORT "$NODE_BIN" --env-file="$DEST_DIR/.env" --input-type=module -e 'const port=Number(process.env.PORT||3000);if(!Number.isSafeInteger(port)||port<1||port>65535)process.exit(1);const r=await fetch("http://127.0.0.1:"+port+"/health",{signal:AbortSignal.timeout(5000)});const j=await r.json();if(!r.ok||j.relayVersion!=="0.3.0"||!j.adminEnabled)process.exit(1);console.log("AI Build relay 0.3.0: healthy; admin authentication enabled.")'
+env -u PORT "$NODE_BIN" --env-file="$DEST_DIR/.env" --input-type=module -e 'const port=Number(process.env.PORT||3000);if(!Number.isSafeInteger(port)||port<1||port>65535)process.exit(1);const r=await fetch("http://127.0.0.1:"+port+"/health",{signal:AbortSignal.timeout(5000)});const j=await r.json();if(!r.ok||j.relayVersion!=="0.3.1"||!j.adminEnabled)process.exit(1);console.log("AI Build relay 0.3.1: healthy; admin authentication enabled.")'
 trap - ERR
 echo 'Updated. Existing OpenAI key and quotas are preserved.'
 echo 'The private owner token is in /opt/forgeai/admin-token.txt (root-only).'
