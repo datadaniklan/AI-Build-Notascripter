@@ -1,12 +1,15 @@
-AI Build by Notascripter - relay 0.3.1 update
+AI Build by Notascripter - relay 0.3.2 update
 
 STATUS
-The public client and Ubuntu relay are separate updates. Relay 0.3.1 adds
-unlimited authenticated owner prompts to the model selection and shared
-chat review introduced in relay 0.3.0. Upgrade even an existing 0.3.0 relay
-to receive this allowance. Updating the GitHub loader does not
-update the VM. Install this matching relay before using these features.
-Basic GPT-5.5 conversation remains compatible with relay 0.2.0.
+The public client and Ubuntu relay are separate updates. Relay 0.3.2 fixes
+plan rejection caused by unused null/empty operation placeholders and converts
+an empty chat plan into no plan. Active conflicting operations remain invalid.
+Client 0.3.2 resets stale error/progress state and disables Build without a plan.
+Install this matching relay even when the VM already runs 0.3.1. Unlimited
+owner prompts introduced in 0.3.1 still require the valid owner token and ID.
+Updating the GitHub loader does not update the VM.
+Basic GPT-5.5 conversation remains compatible with earlier relays, without
+this patch's plan-compatibility fixes.
 
 PACKAGE CONTENTS
 The matching key-free package contains server.mjs, update-server.sh, and
@@ -22,7 +25,7 @@ The script requires system-wide Node.js 22 or newer and targets /opt/forgeai,
 forgeai.service, and the forgeai Linux account. It honors PORT from .env
 (default 3000). It checks the new JavaScript, backs up the installed server
 and .env, installs the server, restarts the existing service, and verifies
-relayVersion 0.3.1 with administrator authorization enabled.
+relayVersion 0.3.2 with administrator authorization enabled.
 
 The existing OpenAI key and quota state are preserved. FORGE_STATE_FILE is
 resolved relative to /opt/forgeai and backed up if present. Version-1 state
@@ -41,7 +44,7 @@ the active value to /opt/forgeai/admin-token.txt with root-only permissions.
 The owner reads that file on the VM and enters the token once in the existing
 Admin page after opening the workspace. The normal startup flow is retained.
 Keep it private. It is not included in public bundles or local chat/settings.
-Client 0.3.1 remembers it after authentication in forgeai/admin_8093680942.key,
+Client 0.3.1 and newer remember it after authentication in forgeai/admin_8093680942.key,
 a plain local credential file. Forget removes that saved credential.
 
 Model access requires a valid token and configured owner ID 8093680942.
@@ -118,13 +121,14 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 
 Use the configured port if it differs. Both responses should include ok:true,
-relayVersion:"0.3.1", and adminEnabled:true. The internal ForgeAI name and
+relayVersion:"0.3.2", and adminEnabled:true. The internal ForgeAI name and
 default model gpt-5.5 remain valid. Health does not spend a prompt or verify
 in-game building, remote sharing, or successful inference with every model.
 
 Check startup Off controls before Open, owner authentication/catalog loading,
 authenticated unlimited status and remembered-credential reconnect/Forget,
-normal chat, shared-review withdrawal, and remote server-chat expiry. Live
+normal chat with no enabled Build action, an actual proposed build plan,
+shared-review withdrawal, and remote server-chat expiry. Live
 vehicle placement and bindings still need actual drive/steering observations
 before a generated vehicle can be described as drivable.
 

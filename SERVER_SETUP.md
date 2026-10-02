@@ -1,8 +1,8 @@
-# AI Build by Notascripter — relay 0.3.1
+# AI Build by Notascripter — relay 0.3.2
 
 The relay is a single JavaScript file using Node.js built-ins. It needs no npm packages. The VM handles HTTPS requests, request limits, presence, owner model access, and shared-chat review; OpenAI runs the model.
 
-**The public client and the VM are separate deployments.** Client updates do not change the running server. Relay **0.3.1** adds unlimited authenticated owner prompts to the owner model selection and remote shared-chat review introduced in 0.3.0. An existing 0.3.0 relay must also be updated to receive the owner allowance. An earlier successful build or health check does not establish that these new endpoints are deployed.
+**The public client and the VM are separate deployments.** Client updates do not change the running server. Relay **0.3.2** accepts empty unused operation placeholders and converts an empty chat plan into no plan. Nonempty conflicting operations remain invalid. Install it even over 0.3.1 to receive these fixes; the authenticated unlimited owner allowance introduced in 0.3.1 is retained. An earlier successful build or health check does not establish that these new endpoints are deployed.
 
 ## Update the existing Ubuntu VM
 
@@ -27,7 +27,7 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 ```
 
-Expect `"ok":true`, `"relayVersion":"0.3.1"`, and `"adminEnabled":true` after the provided update. The health response may retain the internal `ForgeAI` name for compatibility. A healthy response checks the process and version; it does not spend an AI request, prove model access, or validate in-game building.
+Expect `"ok":true`, `"relayVersion":"0.3.2"`, and `"adminEnabled":true` after the provided update. The health response may retain the internal `ForgeAI` name for compatibility. A healthy response checks the process and version; it does not spend an AI request, prove model access, or validate in-game building.
 
 ## New installation or manual deployment
 
@@ -119,7 +119,7 @@ The example systemd unit remains named `forgeai.service` and uses `/opt/forgeai`
 
 The free allowance is 10 accepted upstream requests per 48-hour window, guarded by both the supplied Roblox ID and public network. Two upstream requests can run concurrently, with one in flight per reported player. Accepted request receipts prevent automatic duplicate submission/charging. Upstream failures and timeouts can still consume an accepted request; retries are not silently sent.
 
-Administrator requests require the private token regardless of which Roblox ID a caller supplies. Owner model selection/inference and remote chat-review reads additionally require owner player ID `8093680942`. Grant amounts are 1–100 requests per action, with at most 1,000 outstanding bonus requests per reported user. Grant receipts are retained for duplicate protection. Bonus requests still count toward public daily capacity. On relay 0.3.1, a valid administrator token plus owner ID `8093680942` enables unlimited prompts: owner calls bypass the free player/network allowance, bonus spending, and public daily request ceiling. They retain durable request receipts, model validation, output/time limits, two concurrent requests globally, and one in flight per player. A claimed owner ID without the token receives ordinary quota. OpenAI usage is still billed to the operator.
+Administrator requests require the private token regardless of which Roblox ID a caller supplies. Owner model selection/inference and remote chat-review reads additionally require owner player ID `8093680942`. Grant amounts are 1–100 requests per action, with at most 1,000 outstanding bonus requests per reported user. Grant receipts are retained for duplicate protection. Bonus requests still count toward public daily capacity. On relay 0.3.1 or newer, a valid administrator token plus owner ID `8093680942` enables unlimited prompts: owner calls bypass the free player/network allowance, bonus spending, and public daily request ceiling. They retain durable request receipts, model validation, output/time limits, two concurrent requests globally, and one in flight per player. A claimed owner ID without the token receives ordinary quota. OpenAI usage is still billed to the operator.
 
 Client-reported identity is not verified Roblox sign-in. The owner panel's account check is a UI convenience; the server token is the authorization boundary. Presence records include public user ID/name, place ID, job ID, and last-seen time, plus a hashed network identifier for quota calculations. “Online” means a presence report within 150 seconds. Old presence records are removed after 30 days when the registry is updated; the registry is capped at 5,000 records and the admin response returns at most 1,000.
 
@@ -133,12 +133,12 @@ Public server-chat sharing observes only new successful `RBXGeneral` messages de
 
 The owner can read available shared data for a selected service user without joining that server. These snapshots are client-reported, not an authenticated transcript or arbitrary remote-server access. Disabling sharing stops its local collection and requests withdrawal; a pending upload is followed by another withdrawal when it returns. Network failure can prevent delivery of a withdrawal. The public profile lookup checks only a fixed Roblox account endpoint and confirms account metadata, not ownership of a claimed service identity.
 
-The owner Models page lists account-accessible models from the relay's supported Responses/structured-output families. Its catalog is cached for five minutes. The chosen model and its supported reasoning effort are validated; an unsupported or unavailable choice fails without an automatic model switch. Ordinary users remain on GPT-5.5. Model preferences persist in settings. Client 0.3.1 separately remembers the authenticated owner token in `forgeai/admin_8093680942.key`, a plain local credential file; **Forget** removes it. It is not included in chat/settings or public bundles.
+The owner Models page lists account-accessible models from the relay's supported Responses/structured-output families. Its catalog is cached for five minutes. The chosen model and its supported reasoning effort are validated; an unsupported or unavailable choice fails without an automatic model switch. Ordinary users remain on GPT-5.5. Model preferences persist in settings. Client 0.3.1 and newer separately remember the authenticated owner token in `forgeai/admin_8093680942.key`, a plain local credential file; **Forget** removes it. It is not included in chat/settings or public bundles.
 
 ## Acceptance after updating
 
-1. Confirm local and public health report relay 0.3.1, and confirm whether administrator access is enabled.
-2. Send one ordinary greeting. It should produce a normal answer without inventing a build plan.
+1. Confirm local and public health report relay 0.3.2, and confirm whether administrator access is enabled.
+2. Send one ordinary greeting. It should produce a normal answer without inventing a build plan, leave Build disabled, and clear stale progress/errors.
 3. Prepare a small supported build on a clear portion of the own plot. Review the preview, run it once, and inspect the actual placed result.
 4. Check fixed-size parts keep their native dimensions. A generated Lamp resize should fail preparation before game actions.
 5. Check save/load and re-execution retain local chats/plans without resubmitting an attempted action.
