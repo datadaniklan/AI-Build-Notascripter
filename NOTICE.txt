@@ -1,0 +1,20 @@
+AI Build by Notascripter
+Client and relay; internal compatibility identifier: ForgeAI / forgeai
+Copyright (c) 2026 datadaniklan (Notascripter). All rights reserved.
+
+Permission is granted to download and run this release for personal use.
+No permission to redistribute modified copies or sell this software is granted.
+
+The client is distributed in obfuscated form. Obfuscation is reversible and does
+not prevent recovery of the source or establish a security boundary. Shared API
+keys and administrator credentials are not included in the public client.
+
+The integrated read-only game inspector is an independent first-party
+implementation. The upstream Dex/Dex++ application and its GUI, plugins,
+decompiler downloads, and mutation tools are not bundled. Descriptions of
+Dex-style inspection refer to behavior and do not imply upstream endorsement.
+
+This preview is supplied without warranty. OpenAI, Roblox, Build A Boat For
+Treasure, and Dex are separate products; AI Build is not their official
+application. Offline validation is not proof of live game compatibility,
+successful physics behavior, or availability of external services.

@@ -1,0 +1,69 @@
+AI Build by Notascripter - relay 0.2.0 update
+
+STATUS
+The public client and Ubuntu relay are separate updates. The expanded client
+requires relay 0.2.0 for ordinary chat, vehicle/test/copy plans, presence, and
+administrator functions. Changing the GitHub loader does not update the VM.
+The operator must install this matching server update before live acceptance.
+
+PACKAGE CONTENTS
+Use the matching key-free package containing server.mjs, update-server.sh, and
+this instruction file. No OpenAI key, admin credential, populated .env file,
+or existing quota data is included. Preserve the VM's current private files.
+
+UPDATE THE EXISTING VM
+Copy/extract the package onto the existing Ubuntu VM, open its directory, run:
+
+sudo bash update-server.sh
+
+The script requires system-wide Node.js 22 or newer and targets /opt/forgeai,
+forgeai.service, and the forgeai Linux account. It honors PORT from .env
+(default 3000). It checks the new JavaScript, backs up the installed
+server and .env, installs the new server, restarts the existing service, and
+checks relayVersion 0.2.0 with administrator authorization enabled.
+
+The existing OpenAI key and request quota file are preserved. The actual
+FORGE_STATE_FILE path in .env is resolved relative to /opt/forgeai and
+backed up if present. Rollback keeps accepted quota/grant records.
+Do not overwrite the real .env with the blank example.
+
+If installation or health verification fails, the updater attempts to restore
+the previous server, environment, and token file and restart that service.
+
+OWNER ACCESS
+The updater reuses a valid configured owner token or generates one when
+needed. It writes the active value to /opt/forgeai/admin-token.txt with
+root-only permissions. The owner can read that file on the VM and enter
+the token in the in-game Admin page.
+
+Keep the token private. It is never included in the public client and is not
+saved in chats or local settings. A claimed Roblox username or user ID alone
+does not authorize admin requests. The owner panel sends explicit request
+grants and explicit joins only; the relay validates the private token.
+
+VERIFY
+curl --fail http://127.0.0.1:3000/health
+curl --fail https://r.eggsmp.gg/forgeai/health
+
+Both should include ok:true and relayVersion:"0.2.0". After the supplied
+update, adminEnabled should be true. The response can retain the internal
+ForgeAI name. Health does not spend a prompt or verify in-game building.
+
+Then test a normal greeting, a small supported build, local save/load, and
+the owner presence/grant flow. Verify an actual drive and steering test
+before describing a newly generated vehicle as drivable.
+
+DATA AND COMPATIBILITY
+The relay now retains client-reported public Roblox identifiers, recent
+place/server location, and last-seen time for the operator list. It does not
+write chat contents or raw IPs to quota state. Reported identities are not
+verified Roblox sign-in. Join availability remains subject to Roblox.
+
+Keep the working HTTPS proxy; do not expose the Node port directly.
+Keep the existing forgeai.service, quota data, .env, and executor forgeai
+folder. The product name changed; those compatibility names intentionally
+remain so saved user data does not need a manual migration.
+
+Public project: https://github.com/datadaniklan/AI-Build-Notascripter
+User loader: https://raw.githubusercontent.com/datadaniklan/AI-Build-Notascripter/main/loader.lua
+Detailed deployment notes: SERVER_SETUP.md

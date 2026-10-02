@@ -1,0 +1,5 @@
+.env
+.env.*
+forgeai-quota.json
+forgeai-quota.json.tmp
+*.log
