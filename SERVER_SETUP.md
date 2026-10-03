@@ -1,8 +1,8 @@
-# AI Build by Notascripter — relay 0.3.2
+# AI Build by Notascripter — optional relay 0.3.3
 
 The relay is a single JavaScript file using Node.js built-ins. It needs no npm packages. The VM handles HTTPS requests, request limits, presence, owner model access, and shared-chat review; OpenAI runs the model.
 
-**The public client and the VM are separate deployments.** Client updates do not change the running server. Relay **0.3.2** accepts empty unused operation placeholders and converts an empty chat plan into no plan. Nonempty conflicting operations remain invalid. Install it even over 0.3.1 to receive these fixes; the authenticated unlimited owner allowance introduced in 0.3.1 is retained. An earlier successful build or health check does not establish that these new endpoints are deployed.
+**The public client and the VM are separate deployments.** Client 0.3.3's disclosed MetalRod/native-size corrections and context-priority fix work with an installed relay **0.3.2**; no further VM update is required for them. Optional relay **0.3.3** adds stronger material, inventory, geometry, and usable-architecture drafting instructions. It retains the 0.3.2 plan-normalization and 0.3.1 owner allowance behavior. Prompt instructions do not prove successful building or avatar clearance. Client updates do not change the running server.
 
 ## Update the existing Ubuntu VM
 
@@ -27,7 +27,7 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 ```
 
-Expect `"ok":true`, `"relayVersion":"0.3.2"`, and `"adminEnabled":true` after the provided update. The health response may retain the internal `ForgeAI` name for compatibility. A healthy response checks the process and version; it does not spend an AI request, prove model access, or validate in-game building.
+Expect `"ok":true`, `"relayVersion":"0.3.3"`, and `"adminEnabled":true` after this optional update. The health response may retain the internal `ForgeAI` name for compatibility. A healthy response checks the process and version; it does not spend an AI request, prove model access, or validate in-game building.
 
 ## New installation or manual deployment
 
@@ -137,10 +137,10 @@ The owner Models page lists account-accessible models from the relay's supported
 
 ## Acceptance after updating
 
-1. Confirm local and public health report relay 0.3.2, and confirm whether administrator access is enabled.
+1. If applying the optional VM update, confirm local and public health report relay 0.3.3, and confirm whether administrator access is enabled.
 2. Send one ordinary greeting. It should produce a normal answer without inventing a build plan, leave Build disabled, and clear stale progress/errors.
 3. Prepare a small supported build on a clear portion of the own plot. Review the preview, run it once, and inspect the actual placed result.
-4. Check fixed-size parts keep their native dimensions. A generated Lamp resize should fail preparation before game actions.
+4. Check fixed-size parts keep their native dimensions. An exactly native-size request may be omitted with a note; a mismatched Lamp size still fails. Review a decorative MetalRod-to-MetalBlock adjustment as a rectangular approximation before building; wired, mounted, or functional components must not be substituted.
 5. Check save/load and re-execution retain local chats/plans without resubmitting an attempted action.
 6. Before Open AI Build, verify the sharing disclosure and both switches. Test Off choices remain Off and no chat collection begins before Open. Then verify an enabled review upload and its withdrawal, including a pending-request opt-out.
 7. As the owner, authenticate Admin, confirm unlimited status, remembered-credential reconnect and Forget, recent presence, public profile details, model/effort choices, and a remote review from a sharing client. An unavailable/stale review must stay explicit. Make a small explicit request grant and verify it applies once. Test joining only when leaving the current session is intended.

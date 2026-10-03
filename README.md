@@ -2,7 +2,7 @@
 
 A chat workspace with native building tools for your own **Build A Boat For Treasure** plot. Ask an ordinary question, design a build, review its plan, and run the requested stage from the same window.
 
-**Client preview 0.3.2; relay 0.3.2.** This patch fixes rejected plans caused by empty unused operation fields, turns an empty chat plan into an ordinary answer, clears stale error/progress state, and disables Build when there is no current plan. **Install the matching VM update for the relay fixes**, including when the relay already runs 0.3.1. See [UPDATE_SERVER.txt](UPDATE_SERVER.txt). Updating a public loader does not update the VM.
+**Client preview 0.3.3; compatible with relay 0.3.2.** This patch corrects narrowly defined new-part size mistakes before building and preserves material constraints ahead of bulky inspection text. **No VM update is required for these client fixes when relay 0.3.2 is installed.** Optional relay 0.3.3 adds stronger material, geometry, and usable-building-space instructions. See [UPDATE_SERVER.txt](UPDATE_SERVER.txt). Updating a public loader does not update the VM.
 
 The initial live client placed a 12-part car, but its wheel placement and bindings needed correction. That establishes basic placement only. The new vehicle behavior, inspector, and administrator flow still need acceptance checks in the actual executor/game/server combination. [FEATURES.md](FEATURES.md) records the implemented capabilities and their verification limits.
 
@@ -38,7 +38,11 @@ The project is published at [AI-Build-Notascripter](https://github.com/datadanik
 
 Plans are limited to **100 new blocks, 100 edits, and 200 combined connections**. Copy/mirror plans select at most 100 source blocks. Tests, copying, deletion, unbinding, camera views, and character approaches run as separate bounded jobs. Larger projects need multiple stages. The model returns declarative plans; model-generated Lua is not executed.
 
-Normal tool limits still apply. Lamps, Gates, Delays, Buttons, Signs, and other non-scalable types keep their native dimensions. Invalid resizing is rejected during preparation before the plan starts. Piston length and speed are settings; they do not by themselves prove the piston moved. Vehicle placement and bindings must be followed by real motion checks before a vehicle can be described as drivable.
+Normal tool limits still apply. Lamps, Gates, Delays, Buttons, Signs, and other non-scalable types keep their native dimensions. Invalid resizing is rejected during preparation before the plan starts, except for the two disclosed corrections below. Piston length and speed are settings; they do not by themselves prove the piston moved. Vehicle placement and bindings must be followed by real motion checks before a vehicle can be described as drivable.
+
+For a new fixed-size part, a requested size exactly equal to its observed native dimensions is omitted without changing geometry. A custom-sized, unattached decorative **MetalRod** may become an available scalable **MetalBlock**, preserving requested dimensions, position, rotation, and other allowed properties. This is a **rectangular approximation**, disclosed in the chat before the plan is saved or built. It requires enough observed MetalBlock stock for the whole plan and does not apply to existing parts, wired or mounted components, functional controls, or motion mechanisms. Unsupported cases still stop before placement. These corrections make no extra AI request and never retry a game mutation.
+
+When context is too large, script excerpts and inspection extras are trimmed before existing-block context; catalog metadata follows, with basic material rows removed only as a last resort. Availability, dimensions, and resize support are retained wherever the budget permits, and truncation is reported.
 
 ## Saving and loading
 
@@ -78,7 +82,7 @@ AI Build does not send recipient pop-ups when the owner views data, grants reque
 
 ## Server update and owner controls
 
-The public client and the server-update package contain **no OpenAI key or administrator credential**. The OpenAI key belongs in the VM's private `.env` file. The update script preserves the existing key and quota/review file, creates an administrator token when one is absent, and checks relay version 0.3.2 after restart.
+The public client and the server-update package contain **no OpenAI key or administrator credential**. The OpenAI key belongs in the VM's private `.env` file. The update script preserves the existing key and quota/review file, creates an administrator token when one is absent, and checks relay version 0.3.3 after an optional server update.
 
 The startup screen keeps its normal Free/GPT-5.5 flow. The built-in owner account can open the existing **Admin** page after opening the workspace and enter the private token once. After successful server authentication, client versions 0.3.1 and newer save it separately in **`forgeai/admin_8093680942.key`** and reconnect automatically on later launches. **Forget** removes the saved credential and disconnects; closing the window does not forget it. Credential persistence does not add the token to chat history, settings, shared-review payloads, or public release bundles. This is a **plain local credential file, not encryption**; other software with access to the executor workspace can read it, and workspace backups can contain it. Authorization is still checked by the server; the visible owner tab and local file alone grant no authority. Grants and joins require explicit button actions.
 

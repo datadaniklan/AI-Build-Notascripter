@@ -1,15 +1,17 @@
-AI Build by Notascripter - relay 0.3.2 update
+AI Build by Notascripter - optional relay 0.3.3 update
 
 STATUS
-The public client and Ubuntu relay are separate updates. Relay 0.3.2 fixes
-plan rejection caused by unused null/empty operation placeholders and converts
-an empty chat plan into no plan. Active conflicting operations remain invalid.
-Client 0.3.2 resets stale error/progress state and disables Build without a plan.
-Install this matching relay even when the VM already runs 0.3.1. Unlimited
-owner prompts introduced in 0.3.1 still require the valid owner token and ID.
-Updating the GitHub loader does not update the VM.
-Basic GPT-5.5 conversation remains compatible with earlier relays, without
-this patch's plan-compatibility fixes.
+The public client and Ubuntu relay are separate updates. Client 0.3.3 fixes
+narrowly defined MetalRod/native-size preparation mistakes and prioritizes
+material constraints in bounded context. These fixes work with relay 0.3.2:
+NO VM UPDATE IS REQUIRED FOR THEM when 0.3.2 is already installed.
+
+This OPTIONAL relay 0.3.3 update improves instructions for decorative material
+selection, inventory/dimension checks, and usable entrances/interior clearance.
+Instructions are guidance, not proof that a generated building works or fits
+an avatar. This update retains 0.3.2 empty-plan normalization and 0.3.1
+unlimited authenticated owner prompts. Updating the loader does not update
+the VM. Older relays still need the corresponding server features.
 
 PACKAGE CONTENTS
 The matching key-free package contains server.mjs, update-server.sh, and
@@ -25,7 +27,7 @@ The script requires system-wide Node.js 22 or newer and targets /opt/forgeai,
 forgeai.service, and the forgeai Linux account. It honors PORT from .env
 (default 3000). It checks the new JavaScript, backs up the installed server
 and .env, installs the server, restarts the existing service, and verifies
-relayVersion 0.3.2 with administrator authorization enabled.
+relayVersion 0.3.3 with administrator authorization enabled.
 
 The existing OpenAI key and quota state are preserved. FORGE_STATE_FILE is
 resolved relative to /opt/forgeai and backed up if present. Version-1 state
@@ -34,8 +36,8 @@ Do not overwrite the real .env with a blank example.
 
 If installation or health verification fails, the updater attempts to restore
 the previous server, environment, and token file and restart that service.
-Rollback retains accepted quota/grant records. A prior relay does not expose
-the new review routes; any shared-review snapshots retained in state still
+Rollback retains accepted quota/grant records. Relays older than 0.3.0 lack
+the review routes; any shared-review snapshots retained in state still
 require the operator's normal private-data handling and backup controls.
 
 OWNER ACCESS AND MODELS
@@ -121,7 +123,7 @@ curl --fail http://127.0.0.1:3000/health
 curl --fail https://r.eggsmp.gg/forgeai/health
 
 Use the configured port if it differs. Both responses should include ok:true,
-relayVersion:"0.3.2", and adminEnabled:true. The internal ForgeAI name and
+relayVersion:"0.3.3", and adminEnabled:true. The internal ForgeAI name and
 default model gpt-5.5 remain valid. Health does not spend a prompt or verify
 in-game building, remote sharing, or successful inference with every model.
 
